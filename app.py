@@ -1,22 +1,21 @@
+import streamlit as st
+import os
 import requests
 import pdfplumber
 import torch
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
-import os
-import warnings
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-import streamlit as st
 
 # Suppress warnings
+import warnings
 warnings.filterwarnings("ignore")
 
 # Define paths
-audio_folder_path = "audio_folder"  # This will be set dynamically by the user
-pdf_path = "form.pdf"  # This will be set dynamically by the user
-output_pdf_path = "response_output.pdf"
+pdf_path = "/kaggle/input/new-form-customer/Customer Form.pdf"  # Update with your actual path
+output_pdf_path = "/kaggle/working/response_output.pdf"  # Path to save the PDF
 
 # Setup models
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
@@ -124,47 +123,9 @@ def save_responses_to_pdf(responses, output_pdf_path):
 
 # Streamlit UI
 st.title("FILL IT")
-st.write("Upload audio files and a PDF form to extract and generate form data.")
 
-# Upload audio folder
-uploaded_audio_folder = st.file_uploader("Upload Audio Files (zip format only)", type=["zip"])
-uploaded_pdf = st.file_uploader("Upload PDF Form", type=["pdf"])
+# Upload audio file
+uploaded_audio = st.file_uploader("Upload an audio file", type=["wav", "mp3"])
 
-if uploaded_audio_folder and uploaded_pdf:
-    # Save uploaded files
-    with open("uploaded_audio.zip", "wb") as f:
-        f.write(uploaded_audio_folder.getvalue())
-    
-    with open("uploaded_form.pdf", "wb") as f:
-        f.write(uploaded_pdf.getvalue())
-    
-    # Unzip audio files
-    import zipfile
-    with zipfile.ZipFile("uploaded_audio.zip", "r") as zip_ref:
-        zip_ref.extractall(audio_folder_path)
-    
-    pdf_path = "uploaded_form.pdf"
-    
-    # Process audio files
-    responses = []
-    for filename in os.listdir(audio_folder_path):
-        if filename.endswith((".wav", ".mp3")):
-            file_path = os.path.join(audio_folder_path, filename)
-            # Transcribe audio
-            transcribed_text = transcribe_audio(file_path)
-            # Extract text and form fields from PDF
-            pdf_text, pdf_questions = extract_text_from_pdf(pdf_path)
-            # Generate form data
-            form_data = generate_form_data(transcribed_text, pdf_questions)
-            responses.append(form_data)
-    
-    # Save all responses to a PDF
-    save_responses_to_pdf(responses, output_pdf_path)
-    
-    # Provide download link for the generated PDF
-    st.write("Responses have been saved to the PDF.")
-    st.download_button(
-        label="Download the Response PDF",
-        data=open(output_pdf_path, "rb").read(),
-        file_name=output_pdf_path
-    )
+# Upload PDF file
+uploaded_pdf = st.file_uploader("Upload a PDF file with questions
