@@ -126,6 +126,48 @@ st.title("FILL IT")
 
 # Upload audio file
 uploaded_audio = st.file_uploader("Upload an audio file", type=["wav", "mp3"])
-
 # Upload PDF file
-uploaded_pdf = st.file_uploader("Upload a PDF file with questions
+uploaded_pdf = st.file_uploader("Upload a PDF file with questions", type=["pdf"])
+
+# Output box to display responses
+output_box = st.empty()
+
+# Button to start processing
+if st.button("Start Processing"):
+    if uploaded_audio and uploaded_pdf:
+        # Save uploaded files
+        audio_path = "/kaggle/working/uploaded_audio"  # Update with your actual path
+        pdf_path = "/kaggle/working/uploaded_pdf.pdf"  # Update with your actual path
+        
+        with open(audio_path, "wb") as f:
+            f.write(uploaded_audio.read())
+        
+        with open(pdf_path, "wb") as f:
+            f.write(uploaded_pdf.read())
+
+        # Transcribe audio
+        transcription = transcribe_audio(audio_path)
+        
+        # Extract text and questions from PDF
+        pdf_text, questions = extract_text_from_pdf(pdf_path)
+        
+        # Generate form data with Granite
+        responses = generate_form_data(transcription, questions)
+        
+        # Display responses in output box
+        output_box.write("Processing completed. Here are the results:")
+        output_box.write(responses)
+        
+        # Save responses to PDF
+        save_responses_to_pdf([responses], output_pdf_path)
+        
+        # Button to download the PDF with responses
+        with open(output_pdf_path, "rb") as f:
+            st.download_button(
+                label="Download Responses as PDF",
+                data=f,
+                file_name="response_output.pdf",
+                mime="application/pdf"
+            )
+    else:
+        st.warning("Please upload both an audio file and a PDF file.")
