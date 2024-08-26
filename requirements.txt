@@ -6,6 +6,3 @@ transformers
 reportlab
 pydub
 ffmpeg
-zipfile
-tempfile
-warnings 
