@@ -32,7 +32,9 @@ whisper_processor = AutoProcessor.from_pretrained(whisper_model_id)
 # Create Whisper pipeline
 whisper_pipe = pipeline(
     "automatic-speech-recognition",
-    model=whisper_model,
+    model="openai/whisper-small",
+    device=0 if torch.cuda.is_available() else -1  # Use GPU if available, else CPU,
+
     tokenizer=whisper_processor.tokenizer,
     feature_extractor=whisper_processor.feature_extractor,
     device=device,
