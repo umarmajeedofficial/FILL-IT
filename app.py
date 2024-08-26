@@ -8,6 +8,8 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from io import BytesIO
 import os
+from pydub import AudioSegment
+import numpy as np
 
 # Suppress warnings
 import warnings
@@ -39,9 +41,17 @@ granite_headers = {
     
 }
 
+# Function to convert BytesIO to numpy array
+def bytesio_to_numpy(audio_file):
+    audio = AudioSegment.from_file(audio_file)
+    audio = audio.set_channels(1).set_frame_rate(16000)  # Ensure mono and correct sampling rate
+    samples = np.array(audio.get_array_of_samples())
+    return samples.astype(np.float32) / 32768.0  # Normalize to [-1, 1]
+
 # Function to transcribe audio files
-def transcribe_audio(file):
-    result = whisper_pipe(file)
+def transcribe_audio(audio_file):
+    audio_np = bytesio_to_numpy(audio_file)
+    result = whisper_pipe(audio_np)
     return result['text']
 
 # Function to extract text and questions from PDF
