@@ -37,7 +37,7 @@ whisper_pipe = pipeline(
 
     tokenizer=whisper_processor.tokenizer,
     feature_extractor=whisper_processor.feature_extractor,
-    device=device,
+    
     language="en"  # Ensure transcription is in English
 )
 
