@@ -1,27 +1,16 @@
-import io
-import os
 import requests
 import pdfplumber
 import torch
-import ffmpeg
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
+import os
+import warnings
 import streamlit as st
 from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 # Suppress warnings
-import warnings
 warnings.filterwarnings("ignore")
-
-# Define paths for temporary files
-temp_audio_folder = "/tmp/audios/"
-temp_pdf_path = "/tmp/uploaded_pdf.pdf"
-temp_output_pdf_path = "/tmp/response_output.pdf"
-
-# Ensure temporary directories exist
-os.makedirs(temp_audio_folder, exist_ok=True)
 
 # Setup models
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
@@ -40,12 +29,11 @@ whisper_pipe = pipeline(
     device=device
 )
 
-# Granite model URL and headers
 granite_url = "https://us-south.ml.cloud.ibm.com/ml/v1/text/generation?version=2023-05-29"
 granite_headers = {
     "Accept": "application/json",
     "Content-Type": "application/json",
-    "Authorization": "Bearer eyJraWQiOiIyMDI0MDgwMzA4NDEiLCJhbGciOiJSUzI1NiJ9.eyJpYW1faWQiOiJJQk1pZC02OTQwMDBJTlNIIiwiaWQiOiJJQk1pZC02OTQwMDBJTlNIIiwicmVhbG1pZCI6IklCTWlkIiwianRpIjoiNzIxMTJlNWUtOTRhNC00MTY1LTk2ZDgtMTAxYTg0YjhlNmQxIiwiaWRlbnRpZmllciI6IjY5NDAwMElOU0giLCJnaXZlbl9uYW1lIjoiVW1hciIsImZhbWlseV9uYW1lIjoiTWFqZWVkIiwibmFtZSI6IlVtYXIgTWFqZWVkIiwiZW1haWwiOiJ1bWFybWFqZWVkb2ZmaWNpYWxAZ21haWwuY29tIiwic3ViIjoidW1hcm1hamVlZG9mZmljaWFsQGdtYWlsLmNvbSIsImF1dGhuIjp7InN1YiI6InVtYXJtYWplZWRvZmZpY2lhbEBnbWFpbC5jb20iLCJpYW1faWQiOiJJQk1pZC02OTQwMDBJTlNIIiwibmFtZSI6IlVtYXIgTWFqZWVkIiwiZ2l2ZW5fbmFtZSI6IlVtYXIiLCJmYW1pbHlfbmFtZSI6Ik1hamVlZCIsImVtYWlsIjoidW1hcm1hamVlZG9mZmljaWFsQGdtYWlsLmNvbSJ9LCJhY2NvdW50Ijp7InZhbGlkIjp0cnVlLCJic3MiOiIyZTY5MjI1ZjNmMjc0Nzc2ODkwMGE2MGQ5MDBkM2UzNyIsImltc191c2VyX2lkIjoiMTI2MjI5MTciLCJmcm96ZW4iOnRydWUsImltcyI6IjI3NDQzNDQifSwiaWF0IjoxNzI0NjM3ODUyLCJleHAiOjE3MjQ2NDE0NTIsImlzcyI6Imh0dHBzOi8vaWFtLmNsb3VkLmlibS5jb20vaWRlbnRpdHkiLCJncmFudF90eXBlIjoidXJuOmlibTpwYXJhbXM6b2F1dGg6Z3JhbnQtdHlwZTphcGlrZXkiLCJzY29wZSI6ImlibSBvcGVuaWQiLCJjbGllbnRfaWQiOiJkZWZhdWx0IiwiYWNyIjoxLCJhbXIiOlsicHdkIl19.ZKnoQjFyXxXRtsP5cMfv0H1Measiz3Wd5D1srfV4i4QLRwHy6rR6X8up-xNT-O9tccWNo2z5fhPaihz-5n_qPbGnM3-CfZemTr0d9PnbmgKLejsUy3EywPu3Q87J1bjeE2XY0Zm7Sjf9w-TCyUHeFmbBGruv60rzQXXuUd802YInpAcvKaD3_QzVGHtZQTqGmohSWTF8y879B0TfDFD3R3g8GSUchl5ith3qqUGms3IWy8-DRNdkn53M9qMeRrOLAI36v8J-kZdNXbPoG86DiFThvHTNSZj_Sbc6Iiu2N-J9T6ygKNVDH_1tcPJckfAoStVstGugm0i3spun5HsE6w"  # Replace with your actual API key
+    "Authorization": "Bearer eyJraWQiOiIyMDI0MDgwMzA4NDEiLCJhbGciOiJSUzI1NiJ9.eyJpYW1faWQiOiJJQk1pZC02OTQwMDBJTlNIIiwiaWQiOiJJQk1pZC02OTQwMDBJTlNIIiwicmVhbG1pZCI6IklCTWlkIiwianRpIjoiMjc4Y2E5ZjYtYTlmMy00OWRmLTk4MzQtN2FjNTY2ZTQ3YWRlIiwiaWRlbnRpZmllciI6IjY5NDAwMElOU0giLCJnaXZlbl9uYW1lIjoiVW1hciIsImZhbWlseV9uYW1lIjoiTWFqZWVkIiwibmFtZSI6IlVtYXIgTWFqZWVkIiwiZW1haWwiOiJ1bWFybWFqZWVkb2ZmaWNpYWxAZ21haWwuY29tIiwic3ViIjoidW1hcm1hamVlZG9mZmljaWFsQGdtYWlsLmNvbSIsImF1dGhuIjp7InN1YiI6InVtYXJtYWplZWRvZmZpY2lhbEBnbWFpbC5jb20iLCJpYW1faWQiOiJJQk1pZC02OTQwMDBJTlNIIiwibmFtZSI6IlVtYXIgTWFqZWVkIiwiZ2l2ZW5fbmFtZSI6IlVtYXIiLCJmYW1pbHlfbmFtZSI6Ik1hamVlZCIsImVtYWlsIjoidW1hcm1hamVlZG9mZmljaWFsQGdtYWlsLmNvbSJ9LCJhY2NvdW50Ijp7InZhbGlkIjp0cnVlLCJic3MiOiIyZTY5MjI1ZjNmMjc0Nzc2ODkwMGE2MGQ5MDBkM2UzNyIsImltc191c2VyX2lkIjoiMTI2MjI5MTciLCJmcm96ZW4iOnRydWUsImltcyI6IjI3NDQzNDQifSwiaWF0IjoxNzI0NjQ0NjkyLCJleHAiOjE3MjQ2NDgyOTIsImlzcyI6Imh0dHBzOi8vaWFtLmNsb3VkLmlibS5jb20vaWRlbnRpdHkiLCJncmFudF90eXBlIjoidXJuOmlibTpwYXJhbXM6b2F1dGg6Z3JhbnQtdHlwZTphcGlrZXkiLCJzY29wZSI6ImlibSBvcGVuaWQiLCJjbGllbnRfaWQiOiJkZWZhdWx0IiwiYWNyIjoxLCJhbXIiOlsicHdkIl19.Saq4tYc98eSBQJ_X6AvicfNegnDOwvE7RP6n5q1AyO9khiRQbZ5Tc3VOeHnzWiGkoHEMcU3fZ-Hdlb1eYv_bTUeU4__m_pqhSPX5VKBdDO2ztJCJ8J3eui3viS-7M2ikNkeNLljr2yoN4yXY3dX_dNlXqCsa0SihbeEVfcC2T2yW79GHRPqNkIW0Ru0SM_vbPNMKRDiDEzhYvez9ILzIHNUwALvgnenlmsZNIQN2eVrgajZwwY3FnjCMy9w7A8EaviDpMqdSTsrAoo7qtkWvzdesKE9negXcKUreMB8r6YnpRFC1e_yx9q1XuhAPlCyTYvshTNl05cTgCenYn6pgUg"  # Replace with your actual API key
 }
 
 # Function to transcribe audio files
@@ -54,10 +42,10 @@ def transcribe_audio(file_path):
     return result['text']
 
 # Function to extract text and questions from PDF
-def extract_text_from_pdf(pdf_path):
+def extract_text_from_pdf(pdf_file):
     text = ""
     questions = []
-    with pdfplumber.open(pdf_path) as pdf:
+    with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
             page_text = page.extract_text()
             if page_text:
@@ -80,20 +68,6 @@ def generate_form_data(text, questions):
         },
         "model_id": "ibm/granite-13b-chat-v2",
         "project_id": "698f0da7-6b34-4642-8540-978e70e85c8e",  # Replace with your actual project ID
-        "moderations": {
-            "hap": {
-                "input": {
-                    "enabled": True,
-                    "threshold": 0.5,
-                    "mask": {"remove_entity_value": True}
-                },
-                "output": {
-                    "enabled": True,
-                    "threshold": 0.5,
-                    "mask": {"remove_entity_value": True}
-                }
-            }
-        }
     }
     response = requests.post(granite_url, headers=granite_headers, json=body)
     if response.status_code != 200:
@@ -106,7 +80,6 @@ def save_responses_to_pdf(responses, output_pdf_path):
     document = SimpleDocTemplate(output_pdf_path, pagesize=letter)
     styles = getSampleStyleSheet()
     
-    # Custom style for numbered responses
     number_style = ParagraphStyle(
         name='NumberedStyle',
         parent=styles['BodyText'],
@@ -117,71 +90,43 @@ def save_responses_to_pdf(responses, output_pdf_path):
     content = []
     
     for index, response in enumerate(responses, start=1):
-        # Add the response number and content
         heading = Paragraph(f"<b>File {index}:</b>", styles['Heading2'])
         response_text = Paragraph(response.replace("\n", "<br/>"), number_style)
         
         content.append(heading)
-        content.append(Spacer(1, 6))  # Space between heading and response
+        content.append(Spacer(1, 6))
         content.append(response_text)
-        content.append(Spacer(1, 18))  # Space between responses
+        content.append(Spacer(1, 18))
     
     document.build(content)
 
-# Set up the Streamlit app
-st.title("FILL IT")
+# Streamlit UI
+st.title("Audio to Form-Filling with Granite")
+st.write("Upload your audio files and a PDF form to extract and fill the data automatically.")
 
-# Upload multiple audio files
-uploaded_audios = st.file_uploader("Upload audio files", type=["wav", "mp3"], accept_multiple_files=True)
+# Upload audio files
+audio_files = st.file_uploader("Upload Audio Files", type=["wav", "mp3"], accept_multiple_files=True)
 
-# Upload PDF file
-uploaded_pdf = st.file_uploader("Upload a PDF file with questions", type=["pdf"])
+# Upload PDF form
+pdf_file = st.file_uploader("Upload PDF Form", type="pdf")
 
-# Output box to display responses
-output_box = st.empty()
-
-# Button to start processing
-if st.button("Start Processing"):
-    if uploaded_audios and uploaded_pdf:
-        responses = []
-        
-        # Read uploaded PDF file
-        pdf_bytes = uploaded_pdf.read()
-        with open(temp_pdf_path, "wb") as f:
-            f.write(pdf_bytes)
-
-        # Process each uploaded audio file
-        for audio_file in uploaded_audios:
-            audio_bytes = audio_file.read()
-            audio_path = os.path.join(temp_audio_folder, audio_file.name)
-            with open(audio_path, "wb") as f:
-                f.write(audio_bytes)
-            
-            # Transcribe audio
-            transcription = transcribe_audio(audio_path)
-            
-            # Extract text and questions from PDF
-            pdf_text, questions = extract_text_from_pdf(temp_pdf_path)
-            
-            # Generate form data with Granite
-            form_data = generate_form_data(transcription, questions)
-            responses.append(form_data)
-        
-        # Display responses in output box
-        output_box.write("Processing completed. Here are the results:")
-        for index, response in enumerate(responses, start=1):
-            output_box.write(f"File {index}:\n{response}\n")
-        
-        # Save responses to PDF
-        save_responses_to_pdf(responses, temp_output_pdf_path)
-        
-        # Button to download the PDF with responses
-        with open(temp_output_pdf_path, "rb") as f:
-            st.download_button(
-                label="Download Responses as PDF",
-                data=f,
-                file_name="response_output.pdf",
-                mime="application/pdf"
-            )
+if st.button("Process Files"):
+    if not audio_files or not pdf_file:
+        st.error("Please upload both audio files and a PDF form.")
     else:
-        st.warning("Please upload both audio files and a PDF file.")
+        responses = []
+        for audio_file in audio_files:
+            # Transcribe audio
+            transcribed_text = transcribe_audio(audio_file)
+            # Extract text and form fields from PDF
+            pdf_text, pdf_questions = extract_text_from_pdf(pdf_file)
+            # Generate form data
+            form_data = generate_form_data(transcribed_text, pdf_questions)
+            responses.append(form_data)
+            st.write(f"File {len(responses)}:\n{form_data}\n")  # Display the extracted form data
+
+        # Save all responses to a PDF
+        output_pdf_path = "response_output.pdf"
+        save_responses_to_pdf(responses, output_pdf_path)
+        st.success(f"Responses have been saved to {output_pdf_path}.")
+        st.download_button("Download Output PDF", data=open(output_pdf_path, "rb").read(), file_name="response_output.pdf")
