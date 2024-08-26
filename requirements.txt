@@ -6,3 +6,6 @@ transformers
 reportlab
 pydub
 ffmpeg
+pydub  
+PyPDF2 
+fpdf
