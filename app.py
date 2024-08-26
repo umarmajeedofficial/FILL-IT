@@ -3,6 +3,7 @@ import os
 import requests
 import pdfplumber
 import torch
+import ffmpeg
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 import streamlit as st
 from reportlab.lib.pagesizes import letter
