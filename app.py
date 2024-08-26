@@ -13,6 +13,10 @@ audio_folder_path = "./audio"  # Temporary path for uploaded files
 pdf_path = "./form.pdf"  # Temporary path for uploaded files
 output_pdf_path = "./response_output.pdf"  # Path to save the PDF
 
+# Ensure directories exist
+if not os.path.exists(audio_folder_path):
+    os.makedirs(audio_folder_path)
+
 # Setup models
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 whisper_model_id = "openai/whisper-medium"
