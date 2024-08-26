@@ -4,3 +4,4 @@ pdfplumber
 torch
 transformers
 reportlab
+pydub
