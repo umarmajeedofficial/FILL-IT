@@ -28,7 +28,7 @@ granite_url = "https://us-south.ml.cloud.ibm.com/ml/v1/text/generation?version=2
 granite_headers = {
     "Accept": "application/json",
     "Content-Type": "application/json",
-    "Authorization": st.secrets['bearer_token']  # Replace with your secret key name
+    "Authorization": Bearer st.secrets['bearer_token']  # Replace with your secret key name
 }
 
 def transcribe_audio(file):
