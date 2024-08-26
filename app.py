@@ -1,17 +1,16 @@
 import streamlit as st
-import zipfile
-import tempfile
 import requests
 import pdfplumber
 import torch
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
-import os
-import warnings
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from io import BytesIO
+import os
 
 # Suppress warnings
+import warnings
 warnings.filterwarnings("ignore")
 
 # Setup models
@@ -31,24 +30,25 @@ whisper_pipe = pipeline(
     device=device
 )
 
-# IBM Granite API URL and Headers
 granite_url = "https://us-south.ml.cloud.ibm.com/ml/v1/text/generation?version=2023-05-29"
 granite_headers = {
     "Accept": "application/json",
     "Content-Type": "application/json",
-    "Authorization": "Bearer eyJraWQiOiIyMDI0MDgwMzA4NDEiLCJhbGciOiJSUzI1NiJ9.eyJpYW1faWQiOiJJQk1pZC02OTQwMDBJTlNIIiwiaWQiOiJJQk1pZC02OTQwMDBJTlNIIiwicmVhbG1pZCI6IklCTWlkIiwianRpIjoiMTEyYTZjZTUtZDk1NS00OWI5LTlmYTgtZjk5OTRhYzdlNDkxIiwiaWRlbnRpZmllciI6IjY5NDAwMElOU0giLCJnaXZlbl9uYW1lIjoiVW1hciIsImZhbWlseV9uYW1lIjoiTWFqZWVkIiwibmFtZSI6IlVtYXIgTWFqZWVkIiwiZW1haWwiOiJ1bWFybWFqZWVkb2ZmaWNpYWxAZ21haWwuY29tIiwic3ViIjoidW1hcm1hamVlZG9mZmljaWFsQGdtYWlsLmNvbSIsImF1dGhuIjp7InN1YiI6InVtYXJtYWplZWRvZmZpY2lhbEBnbWFpbC5jb20iLCJpYW1faWQiOiJJQk1pZC02OTQwMDBJTlNIIiwibmFtZSI6IlVtYXIgTWFqZWVkIiwiZ2l2ZW5fbmFtZSI6IlVtYXIiLCJmYW1pbHlfbmFtZSI6Ik1hamVlZCIsImVtYWlsIjoidW1hcm1hamVlZG9mZmljaWFsQGdtYWlsLmNvbSJ9LCJhY2NvdW50Ijp7InZhbGlkIjp0cnVlLCJic3MiOiIyZTY5MjI1ZjNmMjc0Nzc2ODkwMGE2MGQ5MDBkM2UzNyIsImltc191c2VyX2lkIjoiMTI2MjI5MTciLCJmcm96ZW4iOnRydWUsImltcyI6IjI3NDQzNDQifSwiaWF0IjoxNzI0NjcyMDA5LCJleHAiOjE3MjQ2NzU2MDksImlzcyI6Imh0dHBzOi8vaWFtLmNsb3VkLmlibS5jb20vaWRlbnRpdHkiLCJncmFudF90eXBlIjoidXJuOmlibTpwYXJhbXM6b2F1dGg6Z3JhbnQtdHlwZTphcGlrZXkiLCJzY29wZSI6ImlibSBvcGVuaWQiLCJjbGllbnRfaWQiOiJkZWZhdWx0IiwiYWNyIjoxLCJhbXIiOlsicHdkIl19.XD3Pi8o1y-DoQt4ZvwD-8eXTVKIWxVT69LhayfosgtE9qsUce5NTI2NQusoamonUCgf-h2eYM48-Wa9SD2QKb3SUkcxrzm6Lsq2sRhcg1NroioGwCODdv1CFXUGaFB9TSTHQf1qEE3qXwaanT94b5aW1SXngHuh3gUwlenYeQU1SwZz3Pu9xMIC_vk-Ds3v8hD_---PkHo9W7VZtCMxPDDERLM3IN_O8OjUcP2jzaA3HeRzVDf_QC-w-7KZ05hRRv_u_fbmE-49k3o1tbkaT4FOovYJ7gEQ61iDcy1ojCbBZhB9QUdl99ip2tt6Gj0YqYfDBWfGi4BJ3HtcEA0N9_w"  # Replace with your actual API key
+    "Authorization": "Bearer eyJraWQiOiIyMDI0MDgwMzA4NDEiLCJhbGciOiJSUzI1NiJ9.eyJpYW1faWQiOiJJQk1pZC02OTQwMDBJTlNIIiwiaWQiOiJJQk1pZC02OTQwMDBJTlNIIiwicmVhbG1pZCI6IklCTWlkIiwianRpIjoiODdkNzc1NWUtNzU4Ny00Nzc0LWI4NzAtZjkyNGQ3MGIxNmEzIiwiaWRlbnRpZmllciI6IjY5NDAwMElOU0giLCJnaXZlbl9uYW1lIjoiVW1hciIsImZhbWlseV9uYW1lIjoiTWFqZWVkIiwibmFtZSI6IlVtYXIgTWFqZWVkIiwiZW1haWwiOiJ1bWFybWFqZWVkb2ZmaWNpYWxAZ21haWwuY29tIiwic3ViIjoidW1hcm1hamVlZG9mZmljaWFsQGdtYWlsLmNvbSIsImF1dGhuIjp7InN1YiI6InVtYXJtYWplZWRvZmZpY2lhbEBnbWFpbC5jb20iLCJpYW1faWQiOiJJQk1pZC02OTQwMDBJTlNIIiwibmFtZSI6IlVtYXIgTWFqZWVkIiwiZ2l2ZW5fbmFtZSI6IlVtYXIiLCJmYW1pbHlfbmFtZSI6Ik1hamVlZCIsImVtYWlsIjoidW1hcm1hamVlZG9mZmljaWFsQGdtYWlsLmNvbSJ9LCJhY2NvdW50Ijp7InZhbGlkIjp0cnVlLCJic3MiOiIyZTY5MjI1ZjNmMjc0Nzc2ODkwMGE2MGQ5MDBkM2UzNyIsImltc191c2VyX2lkIjoiMTI2MjI5MTciLCJmcm96ZW4iOnRydWUsImltcyI6IjI3NDQzNDQifSwiaWF0IjoxNzI0Njc4Njc3LCJleHAiOjE3MjQ2ODIyNzcsImlzcyI6Imh0dHBzOi8vaWFtLmNsb3VkLmlibS5jb20vaWRlbnRpdHkiLCJncmFudF90eXBlIjoidXJuOmlibTpwYXJhbXM6b2F1dGg6Z3JhbnQtdHlwZTphcGlrZXkiLCJzY29wZSI6ImlibSBvcGVuaWQiLCJjbGllbnRfaWQiOiJkZWZhdWx0IiwiYWNyIjoxLCJhbXIiOlsicHdkIl19.fmiLcZExa22sN_8Xx3_e-VTvZQVvMqmAi_QiA4NKCV40ni8bobxiFEeBKyv8MpafA405jSzFYQUPRFmBy6XNpvVMWpIYKqsZao7l_EDtqXLDRkM_SySUhZtK4CHu-o6qiLyyObBGabke7niaqXuDhzfvpmZCvA98542aeEwSbYZe6siI9_l05xW1T__fIvKak9Y0Fkf7srAmwW7b0NmezQ0VLH13-hANFm0aXh_sEBT0pGujeyRV6X0Bl0zbNW2YurQzdug23BtdS-IR2xbjoAq9KqsSFK2PUMlA_ENg5oKR00sUqCl3gVvVMRNCFbdSkDnaSv2NWDHH-yhE2LwgTw"  # Replace with your actual API key
+
+    
 }
 
 # Function to transcribe audio files
-def transcribe_audio(file_path):
-    result = whisper_pipe(file_path)
+def transcribe_audio(file):
+    result = whisper_pipe(file)
     return result['text']
 
 # Function to extract text and questions from PDF
-def extract_text_from_pdf(pdf_path):
+def extract_text_from_pdf(pdf_file):
     text = ""
     questions = []
-    with pdfplumber.open(pdf_path) as pdf:
+    with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
             page_text = page.extract_text()
             if page_text:
@@ -93,8 +93,9 @@ def generate_form_data(text, questions):
     return data['results'][0]['generated_text'].strip()
 
 # Function to save responses to PDF
-def save_responses_to_pdf(responses, output_pdf_path):
-    document = SimpleDocTemplate(output_pdf_path, pagesize=letter)
+def save_responses_to_pdf(responses):
+    buffer = BytesIO()
+    document = SimpleDocTemplate(buffer, pagesize=letter)
     styles = getSampleStyleSheet()
     
     # Custom style for numbered responses
@@ -118,42 +119,35 @@ def save_responses_to_pdf(responses, output_pdf_path):
         content.append(Spacer(1, 18))  # Space between responses
     
     document.build(content)
+    buffer.seek(0)
+    return buffer
 
-# Streamlit Interface
-st.title("Audio to Form Filling")
-st.write("Upload a ZIP file containing audio files and a PDF form. The audio will be transcribed, and the form will be filled out based on the content.")
+# Streamlit app
+st.title("FILL IT: By Umar Majeed")
 
-# File uploader widgets
-zip_file = st.file_uploader("Upload ZIP File with Audio Files", type="zip")
-pdf_file = st.file_uploader("Upload PDF Form", type="pdf")
+uploaded_audio_files = st.file_uploader("Upload audio files", type=["wav", "mp3"], accept_multiple_files=True)
+uploaded_pdf = st.file_uploader("Upload PDF form", type=["pdf"])
 
-if st.button("Process"):
-    if zip_file and pdf_file:
-        # Extract the ZIP file
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            with zipfile.ZipFile(zip_file, 'r') as zip_ref:
-                zip_ref.extractall(tmp_dir)
+if uploaded_audio_files and uploaded_pdf:
+    responses = []
 
-            responses = []
-            # Process each audio file in the extracted directory
-            for filename in os.listdir(tmp_dir):
-                if filename.endswith((".wav", ".mp3")):
-                    file_path = os.path.join(tmp_dir, filename)
-                    # Transcribe audio
-                    transcribed_text = transcribe_audio(file_path)
-                    # Extract text and form fields from PDF
-                    pdf_text, pdf_questions = extract_text_from_pdf(pdf_file)
-                    # Generate form data
-                    form_data = generate_form_data(transcribed_text, pdf_questions)
-                    responses.append(form_data)
-                    st.write(f"File {len(responses)}:\n{form_data}\n")  # Print the extracted form data with numbering
-
-            # Save all responses to a PDF
-            output_pdf_path = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf").name
-            save_responses_to_pdf(responses, output_pdf_path)
-
-            # Display download link for the generated PDF
-            with open(output_pdf_path, "rb") as file:
-                st.download_button("Download Processed PDF", file, file_name="processed_output.pdf")
-    else:
-        st.error("Please upload both a ZIP file and a PDF form.")
+    for audio_file in uploaded_audio_files:
+        # Transcribe audio
+        transcribed_text = transcribe_audio(audio_file)
+        # Extract text and form fields from PDF
+        pdf_text, pdf_questions = extract_text_from_pdf(uploaded_pdf)
+        # Generate form data
+        form_data = generate_form_data(transcribed_text, pdf_questions)
+        responses.append(form_data)
+        st.write(f"Extracted form data for {audio_file.name}:")
+        st.write(form_data)
+    
+    if responses:
+        # Save responses to PDF
+        response_pdf_buffer = save_responses_to_pdf(responses)
+        st.download_button(
+            label="Download Response PDF",
+            data=response_pdf_buffer,
+            file_name="response_output.pdf",
+            mime="application/pdf"
+        )
