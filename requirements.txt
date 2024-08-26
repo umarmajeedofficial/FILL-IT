@@ -1,0 +1,6 @@
+streamlit
+requests
+pdfplumber
+torch
+transformers
+reportlab
