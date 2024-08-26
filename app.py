@@ -1,14 +1,13 @@
 import streamlit as st
-import os
+import io
 import requests
 import pdfplumber
 import torch
+from pydub import AudioSegment
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-import io
-from pydub import AudioSegment
 
 # Setup models
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
@@ -34,13 +33,18 @@ granite_headers = {
 }
 
 def transcribe_audio(file):
-    # Convert file-like object to audio segment
-    audio = AudioSegment.from_file(file)
-    # Export to WAV format
-    with io.BytesIO() as wav_file:
-        audio.export(wav_file, format="wav")
-        wav_file.seek(0)
-        result = whisper_pipe(wav_file.read())
+    # Read the uploaded file as a binary stream
+    file_bytes = io.BytesIO(file.read())
+    
+    # Convert the file-like object to an AudioSegment
+    audio = AudioSegment.from_file(file_bytes)
+    
+    # Export audio to a temporary WAV file
+    temp_audio_path = "/tmp/temp_audio.wav"
+    audio.export(temp_audio_path, format="wav")
+    
+    # Perform transcription using Whisper model
+    result = whisper_pipe(temp_audio_path)
     return result['text']
 
 def extract_text_from_pdf(pdf_file):
@@ -131,7 +135,7 @@ if st.button("Process"):
             responses.append(form_data)
             st.write(f"File {len(responses)}:\n{form_data}\n")
         
-        output_pdf_path = "response_output.pdf"
+        output_pdf_path = "/tmp/response_output.pdf"
         save_responses_to_pdf(responses, output_pdf_path)
         
         st.markdown(f"Responses have been saved to [response_output.pdf]({output_pdf_path})")
