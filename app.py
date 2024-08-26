@@ -1,9 +1,10 @@
-import streamlit as st
+import io
 import os
 import requests
 import pdfplumber
 import torch
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
+import streamlit as st
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -13,9 +14,13 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 import warnings
 warnings.filterwarnings("ignore")
 
-# Define paths
-pdf_path = "/kaggle/input/new-form-customer/Customer Form.pdf"  # Update with your actual path
-output_pdf_path = "/kaggle/working/response_output.pdf"  # Path to save the PDF
+# Define paths for temporary files
+temp_audio_folder = "/tmp/audios/"
+temp_pdf_path = "/tmp/uploaded_pdf.pdf"
+temp_output_pdf_path = "/tmp/response_output.pdf"
+
+# Ensure temporary directories exist
+os.makedirs(temp_audio_folder, exist_ok=True)
 
 # Setup models
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
@@ -34,6 +39,7 @@ whisper_pipe = pipeline(
     device=device
 )
 
+# Granite model URL and headers
 granite_url = "https://us-south.ml.cloud.ibm.com/ml/v1/text/generation?version=2023-05-29"
 granite_headers = {
     "Accept": "application/json",
@@ -121,11 +127,12 @@ def save_responses_to_pdf(responses, output_pdf_path):
     
     document.build(content)
 
-# Streamlit UI
+# Set up the Streamlit app
 st.title("FILL IT")
 
-# Upload audio file
-uploaded_audio = st.file_uploader("Upload an audio file", type=["wav", "mp3"])
+# Upload multiple audio files
+uploaded_audios = st.file_uploader("Upload audio files", type=["wav", "mp3"], accept_multiple_files=True)
+
 # Upload PDF file
 uploaded_pdf = st.file_uploader("Upload a PDF file with questions", type=["pdf"])
 
@@ -134,35 +141,41 @@ output_box = st.empty()
 
 # Button to start processing
 if st.button("Start Processing"):
-    if uploaded_audio and uploaded_pdf:
-        # Save uploaded files
-        audio_path = "/kaggle/working/uploaded_audio"  # Update with your actual path
-        pdf_path = "/kaggle/working/uploaded_pdf.pdf"  # Update with your actual path
+    if uploaded_audios and uploaded_pdf:
+        responses = []
         
-        with open(audio_path, "wb") as f:
-            f.write(uploaded_audio.read())
-        
-        with open(pdf_path, "wb") as f:
-            f.write(uploaded_pdf.read())
+        # Read uploaded PDF file
+        pdf_bytes = uploaded_pdf.read()
+        with open(temp_pdf_path, "wb") as f:
+            f.write(pdf_bytes)
 
-        # Transcribe audio
-        transcription = transcribe_audio(audio_path)
-        
-        # Extract text and questions from PDF
-        pdf_text, questions = extract_text_from_pdf(pdf_path)
-        
-        # Generate form data with Granite
-        responses = generate_form_data(transcription, questions)
+        # Process each uploaded audio file
+        for audio_file in uploaded_audios:
+            audio_bytes = audio_file.read()
+            audio_path = os.path.join(temp_audio_folder, audio_file.name)
+            with open(audio_path, "wb") as f:
+                f.write(audio_bytes)
+            
+            # Transcribe audio
+            transcription = transcribe_audio(audio_path)
+            
+            # Extract text and questions from PDF
+            pdf_text, questions = extract_text_from_pdf(temp_pdf_path)
+            
+            # Generate form data with Granite
+            form_data = generate_form_data(transcription, questions)
+            responses.append(form_data)
         
         # Display responses in output box
         output_box.write("Processing completed. Here are the results:")
-        output_box.write(responses)
+        for index, response in enumerate(responses, start=1):
+            output_box.write(f"File {index}:\n{response}\n")
         
         # Save responses to PDF
-        save_responses_to_pdf([responses], output_pdf_path)
+        save_responses_to_pdf(responses, temp_output_pdf_path)
         
         # Button to download the PDF with responses
-        with open(output_pdf_path, "rb") as f:
+        with open(temp_output_pdf_path, "rb") as f:
             st.download_button(
                 label="Download Responses as PDF",
                 data=f,
@@ -170,4 +183,4 @@ if st.button("Start Processing"):
                 mime="application/pdf"
             )
     else:
-        st.warning("Please upload both an audio file and a PDF file.")
+        st.warning("Please upload both audio files and a PDF file.")
