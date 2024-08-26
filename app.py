@@ -1,94 +1,141 @@
-import streamlit as st
-from pydub import AudioSegment
-import numpy as np
-from transformers import pipeline
-from PyPDF2 import PdfReader
-import io
-from fpdf import FPDF
+import requests
+import pdfplumber
+import torch
+from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
+import os
+import warnings
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 
-# Initialize Whisper pipeline
-whisper_pipe = pipeline(model="openai/whisper-large")
+# Suppress warnings globally
+warnings.filterwarnings("ignore")
 
-# Function to convert uploaded file to numpy array
-def uploaded_file_to_numpy(uploaded_file):
-    # Load the audio file with pydub
-    audio = AudioSegment.from_file(uploaded_file)
-    # Ensure audio is mono and at 16kHz sampling rate
-    audio = audio.set_channels(1).set_frame_rate(16000)
-    # Convert audio to numpy array
-    samples = np.array(audio.get_array_of_samples())
-    return samples.astype(np.float32) / 32768.0  # Normalize to [-1, 1]
+# Define paths
+audio_folder_path = "/kaggle/input/call-data"  # Update with your actual path
+pdf_path = "/kaggle/input/new-form-customer/Customer Form.pdf"  # Update with your actual path
+output_pdf_path = "/kaggle/working/response_output.pdf"  # Path to save the PDF
+
+# Setup models
+device = "cuda:0" if torch.cuda.is_available() else "cpu"
+whisper_model_id = "openai/whisper-medium"
+
+# Load Whisper model and processor
+whisper_model = AutoModelForSpeechSeq2Seq.from_pretrained(whisper_model_id)
+whisper_processor = AutoProcessor.from_pretrained(whisper_model_id)
+
+# Create Whisper pipeline
+whisper_pipe = pipeline(
+    "automatic-speech-recognition",
+    model=whisper_model,
+    tokenizer=whisper_processor.tokenizer,
+    feature_extractor=whisper_processor.feature_extractor,
+    device=device
+)
+
+granite_url = "https://us-south.ml.cloud.ibm.com/ml/v1/text/generation?version=2023-05-29"
+granite_headers = {
+    "Accept": "application/json",
+    "Content-Type": "application/json",
+    "Authorization": "Bearer Your API KEY"  # Replace with your actual API key
+}
 
 # Function to transcribe audio files
-def transcribe_audio(uploaded_file):
-    audio_np = uploaded_file_to_numpy(uploaded_file)
-    # Process audio with whisper_pipe
-    result = whisper_pipe(audio_np)
+def transcribe_audio(file_path):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = whisper_pipe(file_path)
     return result['text']
 
-# Function to extract text from PDF
-def extract_text_from_pdf(pdf_file):
-    pdf_reader = PdfReader(pdf_file)
-    pdf_text = ""
-    pdf_questions = []
-    
-    # Extract text from each page
-    for page in pdf_reader.pages:
-        pdf_text += page.extract_text()
-    
-    # For simplicity, assume questions are lines starting with a question mark
-    pdf_questions = [line.strip() for line in pdf_text.split('\n') if '?' in line]
-    
-    return pdf_text, pdf_questions
+# Function to extract text and questions from PDF
+def extract_text_from_pdf(pdf_path):
+    text = ""
+    questions = []
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text
+                questions += [line.strip() for line in page_text.split("\n") if line.strip()]
+    return text, questions
 
-# Function to generate form data (placeholder example)
-def generate_form_data(transcribed_text, pdf_questions):
-    # Simple example of filling out form with transcribed text
-    form_data = {}
-    for question in pdf_questions:
-        form_data[question] = transcribed_text  # Placeholder: Fill all questions with the same text
-    return form_data
+# Function to generate form data with Granite
+def generate_form_data(text, questions):
+    question_list = "\n".join(f"- {question}" for question in questions)
+    body = {
+        "input": f"""The following text is a transcript from an audio recording. Read the text and extract the information needed to fill out the following form.\n\nText: {text}\n\nForm Questions:\n{question_list}\n\nExtracted Form Data:""",
+        "parameters": {
+            "decoding_method": "sample",
+            "max_new_tokens": 900,
+            "temperature": 0.7,
+            "top_k": 50,
+            "top_p": 1,
+            "repetition_penalty": 1.05
+        },
+        "model_id": "ibm/granite-13b-chat-v2",
+        "project_id": "Project ID",  # Replace with your actual project ID
+        "moderations": {
+            "hap": {
+                "input": {
+                    "enabled": True,
+                    "threshold": 0.5,
+                    "mask": {"remove_entity_value": True}
+                },
+                "output": {
+                    "enabled": True,
+                    "threshold": 0.5,
+                    "mask": {"remove_entity_value": True}
+                }
+            }
+        }
+    }
+    response = requests.post(granite_url, headers=granite_headers, json=body)
+    if response.status_code != 200:
+        raise Exception("Non-200 response: " + str(response.text))
+    data = response.json()
+    return data['results'][0]['generated_text'].strip()
 
 # Function to save responses to PDF
-def save_responses_to_pdf(responses, filename):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size = 12)
-    
+def save_responses_to_pdf(responses, output_pdf_path):
+    document = SimpleDocTemplate(output_pdf_path, pagesize=letter)
+    styles = getSampleStyleSheet()
+
+    # Custom style for numbered responses
+    number_style = ParagraphStyle(
+        name='NumberedStyle',
+        parent=styles['BodyText'],
+        fontSize=10,
+        spaceAfter=12
+    )
+
+    content = []
     for index, response in enumerate(responses, start=1):
-        pdf.cell(200, 10, txt = f"File {index}:", ln = True)
-        for question, answer in response.items():
-            pdf.cell(200, 10, txt = f"{question}: {answer}", ln = True)
-        pdf.ln()
-    
-    pdf.output(filename)
+        # Add the response number and content
+        heading = Paragraph(f"<b>File {index}:</b>", styles['Heading2'])
+        response_text = Paragraph(response.replace("\n", "<br/>"), number_style)
 
-# Streamlit app code
-st.title("FILL IT: By Umar Majeed")
+        content.append(heading)
+        content.append(Spacer(1, 6))  # Space between heading and response
+        content.append(response_text)
+        content.append(Spacer(1, 18))  # Space between responses
 
-audio_files = st.file_uploader("Upload audio files", type=["wav", "mp3"], accept_multiple_files=True)
-pdf_file = st.file_uploader("Upload PDF form", type="pdf")
+    document.build(content)
 
-if audio_files and pdf_file:
-    st.write("Processing...")
-    
-    responses = []
-    for audio_file in audio_files:
-        # Transcribe audio file
-        transcribed_text = transcribe_audio(audio_file)
-        # Process PDF and generate form data
-        pdf_text, pdf_questions = extract_text_from_pdf(pdf_file)
+# Process audio files
+responses = []
+for filename in os.listdir(audio_folder_path):
+    if filename.endswith((".wav", ".mp3")):
+        file_path = os.path.join(audio_folder_path, filename)
+        # Transcribe audio
+        transcribed_text = transcribe_audio(file_path)
+        # Extract text and form fields from PDF
+        pdf_text, pdf_questions = extract_text_from_pdf(pdf_path)
+        # Generate form data
         form_data = generate_form_data(transcribed_text, pdf_questions)
         responses.append(form_data)
-    
-    # Display results
-    st.write("Extracted Form Data:")
-    for index, response in enumerate(responses, start=1):
-        st.write(f"File {index}:")
-        st.write(response)
-    
-    # Save responses to PDF and provide download link
-    output_pdf_filename = "response_output.pdf"
-    save_responses_to_pdf(responses, output_pdf_filename)
-    with open(output_pdf_filename, "rb") as file:
-        st.download_button("Download Responses PDF", data=file.read(), file_name=output_pdf_filename)
+        print(f"File {len(responses)}:\n{form_data}\n")  # Print the extracted form data with numbering
+
+# Save all responses to a PDF
+save_responses_to_pdf(responses, output_pdf_path)
+print(f"Responses have been saved to {output_pdf_path}")
